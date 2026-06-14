@@ -1,0 +1,622 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>思维导图编辑器</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        body{font-family:'Microsoft YaHei',sans-serif;overflow:hidden;background:#1a1a2e;display:flex;height:100vh}
+        #sidebar{width:260px;background:#16213e;display:flex;flex-direction:column;border-right:2px solid #0f3460}
+        #sidebar-header{padding:15px;background:#0f3460;color:white;font-size:16px;font-weight:bold;display:flex;justify-content:space-between;align-items:center}
+        #new-btn{padding:6px 12px;background:#e94560;color:white;border:none;border-radius:4px;cursor:pointer;font-size:12px}
+        #new-btn:hover{background:#ff6b81}
+        #history-list{flex:1;overflow-y:auto;padding:10px}
+        .history-item{padding:12px;margin-bottom:8px;background:#1a1a2e;border-radius:8px;cursor:pointer;border:2px solid transparent}
+        .history-item:hover{background:#0f3460;border-color:#e94560}
+        .history-item.active{border-color:#ffd700;background:#0f3460}
+        .history-item-title{color:white;font-size:14px;margin-bottom:4px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+        .history-item-time{color:#888;font-size:11px}
+        .history-item-actions{margin-top:8px}
+        .btn-delete{padding:4px 8px;font-size:11px;border:none;border-radius:4px;cursor:pointer;background:#e94560;color:white}
+        .empty-history{color:#666;text-align:center;padding:40px 20px;font-size:13px}
+        #main{flex:1;display:flex;flex-direction:column;overflow:hidden}
+        #toolbar{height:50px;background:#16213e;display:flex;align-items:center;padding:0 20px;gap:8px;box-shadow:0 2px 10px rgba(0,0,0,0.3);flex-wrap:wrap}
+        .toolbar-btn{padding:8px 14px;background:#0f3460;color:white;border:none;border-radius:6px;cursor:pointer;font-size:13px;transition:all 0.3s;white-space:nowrap}
+        .toolbar-btn:hover{background:#e94560;transform:translateY(-2px)}
+        .toolbar-divider{width:1px;height:30px;background:#0f3460}
+        #canvas-wrap{flex:1;overflow:hidden;position:relative}
+        #canvas{position:absolute;width:100%;height:100%}
+        svg.connections{position:absolute;pointer-events:none;z-index:1}
+        .node{position:absolute;min-width:120px;padding:15px 20px;color:white;border-radius:25px;text-align:center;cursor:move;user-select:none;box-shadow:0 8px 25px rgba(0,0,0,0.3);transition:transform 0.2s,box-shadow 0.2s;z-index:2}
+        .node:hover{transform:scale(1.05);box-shadow:0 12px 35px rgba(0,0,0,0.4)}
+        .node.selected{outline:3px solid #ffd700;outline-offset:3px}
+        .node.root{min-width:150px;padding:20px 30px;font-size:18px;font-weight:bold}
+        .node-text{outline:none;min-width:50px}
+        .node-text:focus{background:rgba(255,255,255,0.2);border-radius:4px}
+        #context-menu{position:fixed;background:#16213e;border-radius:8px;box-shadow:0 8px 30px rgba(0,0,0,0.4);display:none;z-index:2000;overflow:hidden}
+        .menu-item{padding:12px 24px;color:white;cursor:pointer;transition:background 0.2s}
+        .menu-item:hover{background:#e94560}
+        #color-picker{position:fixed;background:#16213e;border-radius:12px;padding:15px;display:none;z-index:2000;box-shadow:0 8px 30px rgba(0,0,0,0.4)}
+        .color-grid{display:grid;grid-template-columns:repeat(5,1fr);gap:8px}
+        .color-option{width:35px;height:35px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:all 0.2s}
+        .color-option:hover{transform:scale(1.2);border-color:white}
+        #help{position:fixed;bottom:20px;left:280px;background:rgba(22,33,62,0.9);padding:15px 20px;border-radius:10px;color:#aaa;font-size:12px;z-index:1000}
+        #help kbd{background:#0f3460;padding:2px 6px;border-radius:4px;margin:0 3px}
+        #zoom-info{position:fixed;bottom:20px;right:20px;background:rgba(22,33,62,0.9);padding:10px 15px;border-radius:8px;color:#aaa;font-size:12px;z-index:1000}
+        #save-status{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:rgba(67,233,123,0.9);padding:8px 16px;border-radius:6px;color:#1a1a2e;font-size:12px;display:none;z-index:1000}
+    </style>
+</head>
+<body>
+    <div id="sidebar">
+        <div id="sidebar-header">
+            <span>历史记录</span>
+            <button id="new-btn" onclick="newMindMap()">+ 新建</button>
+        </div>
+        <div id="history-list"><div class="empty-history">暂无历史记录</div></div>
+    </div>
+    <div id="main">
+        <div id="toolbar">
+            <button class="toolbar-btn" onclick="addChildNode()">添加节点</button>
+            <button class="toolbar-btn" onclick="deleteNode()">删除节点</button>
+            <button class="toolbar-btn" onclick="undo()">撤销</button>
+            <div class="toolbar-divider"></div>
+            <button class="toolbar-btn" onclick="showColorPicker()">更改颜色</button>
+            <div class="toolbar-divider"></div>
+            <button class="toolbar-btn" onclick="zoomIn()">放大</button>
+            <button class="toolbar-btn" onclick="zoomOut()">缩小</button>
+            <button class="toolbar-btn" onclick="resetView()">重置</button>
+            <div class="toolbar-divider"></div>
+            <button class="toolbar-btn" onclick="exportPNG()">导出PNG</button>
+            <button class="toolbar-btn" onclick="exportPDF()">导出PDF</button>
+            <div class="toolbar-divider"></div>
+            <button class="toolbar-btn" onclick="selectStorageDir()">设置存储位置</button>
+            <span id="storage-info" style="color:#aaa;font-size:12px;margin-left:10px;">存储位置: 未设置</span>
+        </div>
+        <div id="canvas-wrap">
+            <div id="canvas"><svg class="connections" id="svg-connections"></svg></div>
+        </div>
+    </div>
+    <div id="context-menu">
+        <div class="menu-item" onclick="addChildNode()">添加子节点</div>
+        <div class="menu-item" onclick="showColorPicker()">更改颜色</div>
+        <div class="menu-item" onclick="deleteNode()">删除节点</div>
+    </div>
+    <div id="color-picker"><div class="color-grid" id="color-grid"></div></div>
+    <div id="help"><kbd>Tab</kbd>/<kbd>Enter</kbd> 添加 <kbd>Delete</kbd> 删除 <kbd>Ctrl+Z</kbd> 撤销 <kbd>双击</kbd> 编辑 <kbd>右键</kbd> 菜单</div>
+    <div id="zoom-info">缩放: 100%</div>
+    <div id="save-status">已保存</div>
+
+<script>
+const COLORS=[['#667eea','#764ba2'],['#f093fb','#f5576c'],['#4facfe','#00f2fe'],['#43e97b','#38f9d7'],['#fa709a','#fee140'],['#a8edea','#fed6e3'],['#89f7fe','#66a6ff'],['#fccb90','#d57eeb'],['#e0c3fc','#8ec5fc'],['#f5576c','#ff9a9e'],['#fbc2eb','#a6c1ee'],['#a1c4fd','#c2e9fb'],['#ffecd2','#fcb69f'],['#ff9a9e','#fecfef'],['#a18cd1','#fbc2eb']];
+
+let nodes=[],selectedNode=null,draggedNode=null;
+let draggedChildren=[],lastDragPos={x:0,y:0};
+let canvasEl,svgEl,canvasOffset={x:0,y:0},isDraggingCanvas=false,lastMouse={x:0,y:0};
+let scale=1,nodeIdCounter=0,currentHistoryId=null,lastSavedData=null;
+let historyData=[],mindMapLoaded=false,undoStack=[],saveTimer=null;
+let levelColors={},dirHandle=null;
+let storagePath='';
+const MAX_UNDO=50;
+
+const $=id=>document.getElementById(id);
+const getNodeEl=id=>$(`node-${id}`);
+const findNode=id=>nodes.find(n=>n.id===id);
+
+function init(){
+    canvasEl=$('canvas');
+    svgEl=$('svg-connections');
+    buildColorGrid();
+    loadHistoryList();
+    setupEvents();
+    tryRestoreStorage();
+}
+
+function buildColorGrid(){
+    const grid=$('color-grid');
+    COLORS.forEach(([c1,c2])=>{
+        const div=document.createElement('div');
+        div.className='color-option';
+        const grad=`linear-gradient(135deg,${c1} 0%,${c2} 100%)`;
+        div.style.background=grad;
+        div.onclick=()=>changeNodeColor(grad);
+        grid.appendChild(div);
+    });
+}
+
+function createNewMindMap(){
+    clearCanvas();
+    nodeIdCounter=0;
+    canvasOffset={x:0,y:0};
+    scale=1;
+    currentHistoryId=null;
+    lastSavedData=null;
+    mindMapLoaded=true;
+    undoStack=[];
+    addNode('中心主题',window.innerWidth/2-220,window.innerHeight/2-25,true,null);
+    updateTransform();
+}
+
+function getNodeLevel(nodeId){
+    let level=0,current=findNode(nodeId);
+    while(current&&current.parentId!==null){level++;current=findNode(current.parentId);}
+    return level;
+}
+
+function getLevelColor(level,customColor){
+    if(customColor)return customColor;
+    if(!levelColors[level]){
+        const[c1,c2]=COLORS[(level-1)%COLORS.length];
+        levelColors[level]=`linear-gradient(135deg,${c1} 0%,${c2} 100%)`;
+    }
+    return levelColors[level];
+}
+
+function addNode(text,x,y,isRoot,parentId,customColor=null){
+    const id=nodeIdCounter++;
+    const level=isRoot?0:getNodeLevel(parentId)+1;
+    const color=isRoot?'linear-gradient(135deg,#667eea 0%,#764ba2 100%)':getLevelColor(level,customColor);
+    const node={id,text,x,y,isRoot,color,parentId,children:[],customColor:customColor||null};
+    nodes.push(node);
+    if(parentId!==null){const parent=findNode(parentId);if(parent)parent.children.push(id);}
+    createNodeElement(node);
+    scheduleAutoSave();
+    return node;
+}
+
+function createNodeElement(node){
+    const el=document.createElement('div');
+    el.className=`node${node.isRoot?' root':''}`;
+    el.id=`node-${node.id}`;
+    el.style.cssText=`left:${node.x}px;top:${node.y}px;background:${node.color}`;
+    const txt=document.createElement('div');
+    txt.className='node-text';
+    txt.textContent=node.text;
+    txt.contentEditable=false;
+    el.appendChild(txt);
+    el.addEventListener('mousedown',e=>onNodeMouseDown(e,node));
+    el.addEventListener('dblclick',e=>onNodeDblClick(e,node,txt));
+    el.addEventListener('contextmenu',e=>onNodeContextMenu(e,node));
+    canvasEl.appendChild(el);
+}
+
+function getAllChildren(nodeId){
+    const result=[];
+    const node=findNode(nodeId);
+    if(!node)return result;
+    node.children.forEach(childId=>{result.push(childId,...getAllChildren(childId));});
+    return result;
+}
+
+function getBounds(){
+    let minX=Infinity,minY=Infinity,maxX=-Infinity,maxY=-Infinity;
+    nodes.forEach(n=>{
+        const el=getNodeEl(n.id);
+        if(el){minX=Math.min(minX,n.x);minY=Math.min(minY,n.y);maxX=Math.max(maxX,n.x+el.offsetWidth);maxY=Math.max(maxY,n.y+el.offsetHeight);}
+    });
+    return{minX,minY,maxX,maxY};
+}
+
+function drawAllConnections(){
+    svgEl.innerHTML='';
+    if(nodes.length===0)return;
+    const{minX,minY,maxX,maxY}=getBounds();
+    const pad=100,w=maxX-minX+pad*2,h=maxY-minY+pad*2;
+    svgEl.setAttribute('viewBox',`${minX-pad} ${minY-pad} ${w} ${h}`);
+    svgEl.style.cssText=`position:absolute;width:${w}px;height:${h}px;left:${minX-pad}px;top:${minY-pad}px;pointer-events:none;z-index:1;`;
+    nodes.forEach(node=>{
+        if(node.parentId===null)return;
+        const parent=findNode(node.parentId);
+        if(!parent)return;
+        const pEl=getNodeEl(parent.id),cEl=getNodeEl(node.id);
+        if(!pEl||!cEl)return;
+        const px=parent.x+pEl.offsetWidth/2,py=parent.y+pEl.offsetHeight/2;
+        const cx=node.x+cEl.offsetWidth/2,cy=node.y+cEl.offsetHeight/2;
+        const mx=(px+cx)/2;
+        const path=document.createElementNS('http://www.w3.org/2000/svg','path');
+        path.setAttribute('d',`M ${px} ${py} C ${mx} ${py}, ${mx} ${cy}, ${cx} ${cy}`);
+        path.setAttribute('stroke','rgba(255,255,255,0.5)');
+        path.setAttribute('stroke-width','3');
+        path.setAttribute('fill','none');
+        svgEl.appendChild(path);
+    });
+}
+
+function clearCanvas(){
+    nodes.forEach(n=>{const el=getNodeEl(n.id);if(el)el.remove();});
+    svgEl.innerHTML='';
+    nodes=[];
+    selectedNode=null;
+}
+
+function onNodeMouseDown(e,node){
+    if(e.button!==0)return;
+    e.stopPropagation();
+    selectNode(node);
+    draggedNode=node;
+    lastDragPos={x:e.clientX,y:e.clientY};
+    draggedChildren=getAllChildren(node.id);
+}
+
+function onNodeDblClick(e,node,txt){
+    e.stopPropagation();
+    txt.contentEditable=true;
+    txt.focus();
+    const range=document.createRange();
+    range.selectNodeContents(txt);
+    window.getSelection().removeAllRanges();
+    window.getSelection().addRange(range);
+    const finish=()=>{
+        txt.contentEditable=false;
+        if(node.text!==txt.textContent){saveState();node.text=txt.textContent;}
+        scheduleAutoSave();
+    };
+    txt.addEventListener('blur',finish,{once:true});
+    txt.addEventListener('keydown',ev=>{if(ev.key==='Enter'){ev.preventDefault();txt.blur();}});
+}
+
+function onNodeContextMenu(e,node){
+    e.preventDefault();
+    selectNode(node);
+    showContextMenu(e.clientX,e.clientY);
+}
+
+function selectNode(node){
+    if(selectedNode){const el=getNodeEl(selectedNode.id);if(el)el.classList.remove('selected');}
+    selectedNode=node;
+    const el=getNodeEl(node.id);
+    if(el)el.classList.add('selected');
+}
+
+function showContextMenu(x,y){$('context-menu').style.cssText=`left:${x}px;top:${y}px;display:block`;}
+function hideContextMenu(){$('context-menu').style.display='none';}
+
+function showColorPicker(){
+    hideContextMenu();
+    if(!mindMapLoaded||nodes.length===0||!selectedNode)return;
+    const picker=$('color-picker'),menu=$('context-menu');
+    picker.style.cssText=`left:${parseInt(menu.style.left)+160}px;top:${menu.style.top}px;display:block`;
+}
+
+function hideColorPicker(){$('color-picker').style.display='none';}
+
+function changeNodeColor(color){
+    if(!mindMapLoaded||nodes.length===0||!selectedNode)return;
+    saveState();
+    selectedNode.color=color;
+    selectedNode.customColor=color;
+    const el=getNodeEl(selectedNode.id);
+    if(el)el.style.background=color;
+    hideColorPicker();
+    scheduleAutoSave();
+}
+
+function addChildNode(){
+    hideContextMenu();hideColorPicker();
+    if(!mindMapLoaded||nodes.length===0){alert('请先新建或加载一个思维导图');return;}
+    saveState();
+    const parent=selectedNode||nodes[0];
+    
+    const x=parent.x;
+    const y=parent.y+100;
+    
+    addNode('新节点',x,y,false,parent.id);
+}
+
+function deleteNode(){
+    hideContextMenu();hideColorPicker();
+    if(!mindMapLoaded||nodes.length===0||!selectedNode||selectedNode.isRoot)return;
+    saveState();
+    function removeRecursive(nid){
+        const node=findNode(nid);
+        if(!node)return;
+        [...node.children].forEach(cid=>removeRecursive(cid));
+        const el=getNodeEl(nid);if(el)el.remove();
+        nodes=nodes.filter(n=>n.id!==nid);
+    }
+    if(selectedNode.parentId!==null){const parent=findNode(selectedNode.parentId);if(parent)parent.children=parent.children.filter(cid=>cid!==selectedNode.id);}
+    removeRecursive(selectedNode.id);
+    selectedNode=null;
+    drawAllConnections();
+    scheduleAutoSave();
+}
+
+function setupEvents(){
+    document.addEventListener('mousemove',e=>{
+        if(draggedNode){
+            const dx=e.clientX-lastDragPos.x,dy=e.clientY-lastDragPos.y;
+            lastDragPos={x:e.clientX,y:e.clientY};
+            draggedNode.x+=dx;draggedNode.y+=dy;
+            const el=getNodeEl(draggedNode.id);
+            if(el)el.style.cssText=`left:${draggedNode.x}px;top:${draggedNode.y}px;background:${draggedNode.color}`;
+            draggedChildren.forEach(childId=>{
+                const child=findNode(childId);
+                if(child){child.x+=dx;child.y+=dy;const childEl=getNodeEl(childId);if(childEl)childEl.style.cssText=`left:${child.x}px;top:${child.y}px;background:${child.color}`;}
+            });
+            drawAllConnections();
+        }else if(isDraggingCanvas){
+            canvasOffset.x+=e.clientX-lastMouse.x;
+            canvasOffset.y+=e.clientY-lastMouse.y;
+            lastMouse={x:e.clientX,y:e.clientY};
+            updateTransform();
+        }
+    });
+
+    document.addEventListener('mouseup',()=>{if(draggedNode)scheduleAutoSave();draggedNode=null;draggedChildren=[];isDraggingCanvas=false;});
+
+    document.addEventListener('mousedown',e=>{
+        if(e.target===canvasEl||e.target===svgEl||e.target.id==='canvas-wrap'||e.target===document.body){
+            if(e.button===0){isDraggingCanvas=true;lastMouse={x:e.clientX,y:e.clientY};hideContextMenu();hideColorPicker();}
+        }
+    });
+
+    canvasEl.addEventListener('click',e=>{
+        if((e.target===canvasEl||e.target===svgEl)&&selectedNode){const el=getNodeEl(selectedNode.id);if(el)el.classList.remove('selected');selectedNode=null;}
+    });
+
+    document.addEventListener('wheel',e=>{e.preventDefault();zoomAtPoint(e.deltaY>0?-0.1:0.1,e.clientX,e.clientY);},{passive:false});
+
+    document.addEventListener('click',e=>{
+        if(!e.target.closest('#context-menu'))hideContextMenu();
+        if(!e.target.closest('#color-picker')&&!e.target.classList.contains('toolbar-btn'))hideColorPicker();
+    });
+
+    document.addEventListener('keydown',e=>{
+        if(document.activeElement.contentEditable==='true')return;
+        if((e.ctrlKey||e.metaKey)&&e.key==='z'){e.preventDefault();undo();}
+        else if(e.key==='Tab'||e.key==='Enter'){e.preventDefault();addChildNode();}
+        else if(e.key==='Delete')deleteNode();
+        else if(e.key==='Escape'){hideContextMenu();hideColorPicker();}
+    });
+}
+
+function updateTransform(){
+    canvasEl.style.transform=`translate(${canvasOffset.x}px,${canvasOffset.y}px) scale(${scale})`;
+    canvasEl.style.transformOrigin='0 0';
+}
+
+function zoomAtPoint(delta,clientX,clientY){
+    const rect=$('canvas-wrap').getBoundingClientRect();
+    const mouseX=clientX-rect.left,mouseY=clientY-rect.top;
+    const oldScale=scale;
+    scale=Math.min(Math.max(0.3,scale+delta),3);
+    const scaleChange=scale/oldScale;
+    canvasOffset.x=mouseX-(mouseX-canvasOffset.x)*scaleChange;
+    canvasOffset.y=mouseY-(mouseY-canvasOffset.y)*scaleChange;
+    updateTransform();
+    $('zoom-info').textContent=`缩放: ${Math.round(scale*100)}%`;
+}
+
+function zoomIn(){zoomAtPoint(0.2,window.innerWidth/2,window.innerHeight/2);}
+function zoomOut(){zoomAtPoint(-0.2,window.innerWidth/2,window.innerHeight/2);}
+function resetView(){scale=1;canvasOffset={x:0,y:0};updateTransform();$('zoom-info').textContent='缩放: 100%';}
+
+function formatTime(d){
+    return[d.getFullYear(),String(d.getMonth()+1).padStart(2,'0'),String(d.getDate()).padStart(2,'0')].join('')+'_'+[String(d.getHours()).padStart(2,'0'),String(d.getMinutes()).padStart(2,'0'),String(d.getSeconds()).padStart(2,'0')].join('');
+}
+
+function formatDisplay(s){return`${s.slice(0,4)}-${s.slice(4,6)}-${s.slice(6,8)} ${s.slice(9,11)}:${s.slice(11,13)}`;}
+
+function saveState(){
+    const state={nodes:nodes.map(n=>({...n,children:[...n.children]})),nodeIdCounter};
+    undoStack.push(JSON.stringify(state));
+    if(undoStack.length>MAX_UNDO)undoStack.shift();
+}
+
+function undo(){
+    if(undoStack.length===0){alert('没有可撤销的操作');return;}
+    loadNodesFromData(JSON.parse(undoStack.pop()),true);
+}
+
+function scheduleAutoSave(){
+    if(saveTimer)clearTimeout(saveTimer);
+    saveTimer=setTimeout(autoSaveToHistory,1000);
+}
+
+function getNodeData(){
+    return{nodes:nodes.map(n=>({id:n.id,text:n.text,x:n.x,y:n.y,isRoot:n.isRoot,color:n.color,parentId:n.parentId,customColor:n.customColor})),nodeIdCounter};
+}
+
+function loadNodesFromData(data,isUndo=false){
+    clearCanvas();
+    nodeIdCounter=data.nodeIdCounter||0;
+    mindMapLoaded=true;
+    levelColors={};
+    data.nodes.forEach(n=>{const node={...n,children:[],customColor:n.customColor||null};nodes.push(node);createNodeElement(node);});
+    nodes.forEach(n=>{if(n.parentId!==null){const parent=findNode(n.parentId);if(parent)parent.children.push(n.id);}});
+    updateTransform();
+    requestAnimationFrame(()=>requestAnimationFrame(()=>{drawAllConnections();if(!isUndo)lastSavedData=JSON.stringify(data);}));
+}
+
+function autoSaveToHistory(){
+    if(!mindMapLoaded||nodes.length===0)return;
+    const root=nodes.find(n=>n.isRoot);
+    const name=root?root.text:'未命名';
+    const time=formatTime(new Date());
+    const data=getNodeData();
+    const dataStr=JSON.stringify(data);
+    if(lastSavedData===dataStr)return;
+    lastSavedData=dataStr;
+    if(currentHistoryId){
+        const idx=historyData.findIndex(h=>h.id===currentHistoryId);
+        if(idx!==-1){Object.assign(historyData[idx],{name,time,data});saveHistoryIndex();loadHistoryList();showSaveStatus();return;}
+    }
+    const id=`${name}_${time}`;
+    historyData.unshift({id,name,time,data});
+    currentHistoryId=id;
+    saveHistoryIndex();loadHistoryList();showSaveStatus();
+}
+
+function saveHistoryIndex(){
+    localStorage.setItem('mindmap-history',JSON.stringify(historyData));
+    saveToFileSync();
+}
+
+async function saveToFileSync(){
+    if(!dirHandle)return;
+    try{
+        const fileHandle=await dirHandle.getFileHandle('history.json',{create:true});
+        const writable=await fileHandle.createWritable();
+        await writable.write(JSON.stringify(historyData,null,2));
+        await writable.close();
+    }catch(e){console.error('保存到文件失败:',e);}
+}
+
+async function loadFromFileSync(){
+    if(!dirHandle)return false;
+    try{
+        const fileHandle=await dirHandle.getFileHandle('history.json');
+        const file=await fileHandle.getFile();
+        const text=await file.text();
+        const data=JSON.parse(text);
+        historyData.length=0;
+        data.forEach(i=>historyData.push(i));
+        return true;
+    }catch(e){return false;}
+}
+
+async function selectStorageDir(){
+    try{
+        dirHandle=await window.showDirectoryPicker({mode:'readwrite'});
+        storagePath=dirHandle.name;
+        localStorage.setItem('mindmap-dir-name',storagePath);
+        await saveToFileSync();
+        updateStorageInfo();
+        alert('存储位置已设置！');
+    }catch(e){alert('未选择文件夹');}
+}
+
+function tryRestoreStorage(){
+    const savedName=localStorage.getItem('mindmap-dir-name');
+    if(savedName){
+        storagePath=savedName;
+        updateStorageInfo();
+    }
+}
+
+async function loadHistoryList(){
+    if(dirHandle){await loadFromFileSync();}
+    else{
+        try{const saved=localStorage.getItem('mindmap-history');if(saved){historyData.length=0;JSON.parse(saved).forEach(i=>historyData.push(i));}}catch(e){}
+    }
+    const list=$('history-list');
+    list.innerHTML=historyData.length===0?'<div class="empty-history">暂无历史记录</div>':
+        historyData.map((item,i)=>`
+            <div class="history-item${item.id===currentHistoryId?' active':''}" onclick="if(!event.target.classList.contains('btn-delete'))loadHistoryItem(${i})">
+                <div class="history-item-title">${item.name}</div>
+                <div class="history-item-time">${formatDisplay(item.time)}</div>
+                <div class="history-item-actions">
+                    <button class="btn-delete" onclick="event.stopPropagation();deleteHistoryItem(${i})">删除</button>
+                </div>
+            </div>`).join('');
+}
+
+function loadHistoryItem(index){
+    const item=historyData[index];
+    if(!item||!item.data)return;
+    currentHistoryId=item.id;
+    undoStack=[];
+    loadNodesFromData(item.data);
+    loadHistoryList();
+}
+
+function deleteHistoryItem(index){
+    if(!confirm('确定要删除这个历史记录吗？'))return;
+    if(historyData[index].id===currentHistoryId)currentHistoryId=null;
+    historyData.splice(index,1);
+    saveHistoryIndex();loadHistoryList();
+}
+
+function showSaveStatus(){const s=$('save-status');s.style.display='block';setTimeout(()=>s.style.display='none',1500);}
+
+function updateStorageInfo(){
+    const info=$('storage-info');
+    if(!info)return;
+    if(dirHandle){
+        info.textContent=`存储位置: ${storagePath}`;
+        info.style.color='#43e97b';
+    }else if(storagePath){
+        info.textContent=`存储位置: ${storagePath}（需重新授权）`;
+        info.style.color='#ffa500';
+    }else{
+        info.textContent='存储位置: 未设置';
+        info.style.color='#ff6b6b';
+    }
+}
+
+function newMindMap(){
+    if(nodes.length>0&&!confirm('确定要新建吗？当前内容已自动保存'))return;
+    currentHistoryId=null;lastSavedData=null;
+    createNewMindMap();loadHistoryList();
+}
+
+function renderToCanvas(){
+    if(!mindMapLoaded||nodes.length===0){alert('请先新建或加载一个思维导图');return null;}
+    const{minX,minY,maxX,maxY}=getBounds();
+    const pad=80,w=maxX-minX+pad*2,h=maxY-minY+pad*2,s=2;
+    const cvs=document.createElement('canvas');
+    cvs.width=w*s;cvs.height=h*s;
+    const ctx=cvs.getContext('2d');
+    ctx.scale(s,s);
+    ctx.fillStyle='#1a1a2e';
+    ctx.fillRect(0,0,w,h);
+    nodes.forEach(n=>{
+        if(n.parentId===null)return;
+        const parent=findNode(n.parentId);
+        if(!parent)return;
+        const pEl=getNodeEl(parent.id),cEl=getNodeEl(n.id);
+        if(!pEl||!cEl)return;
+        const px=parent.x-minX+pad+pEl.offsetWidth/2,py=parent.y-minY+pad+pEl.offsetHeight/2;
+        const cx=n.x-minX+pad+cEl.offsetWidth/2,cy=n.y-minY+pad+cEl.offsetHeight/2;
+        ctx.beginPath();ctx.moveTo(px,py);
+        ctx.bezierCurveTo((px+cx)/2,py,(px+cx)/2,cy,cx,cy);
+        ctx.strokeStyle='rgba(255,255,255,0.5)';ctx.lineWidth=3;ctx.stroke();
+    });
+    nodes.forEach(n=>{
+        const el=getNodeEl(n.id);if(!el)return;
+        const x=n.x-minX+pad,y=n.y-minY+pad,nw=el.offsetWidth,nh=el.offsetHeight;
+        const gm=n.color.match(/#[0-9a-fA-F]{6}/g)||['#667eea','#764ba2'];
+        const grad=ctx.createLinearGradient(x,y,x+nw,y+nh);
+        grad.addColorStop(0,gm[0]);grad.addColorStop(1,gm[1]||gm[0]);
+        ctx.save();
+        ctx.shadowColor='rgba(0,0,0,0.3)';ctx.shadowBlur=15;ctx.shadowOffsetY=5;
+        ctx.beginPath();ctx.roundRect(x,y,nw,nh,25);ctx.fillStyle=grad;ctx.fill();
+        ctx.restore();
+        ctx.fillStyle='white';
+        ctx.font=n.isRoot?'bold 18px Microsoft YaHei':'14px Microsoft YaHei';
+        ctx.textAlign='center';ctx.textBaseline='middle';
+        ctx.fillText(n.text,x+nw/2,y+nh/2,nw-20);
+    });
+    return cvs;
+}
+
+function exportPNG(){
+    const cvs=renderToCanvas();if(!cvs)return;
+    const root=nodes.find(n=>n.isRoot);
+    const a=document.createElement('a');
+    a.href=cvs.toDataURL('image/png');
+    a.download=`${root?root.text:'未命名'}_${formatTime(new Date())}.png`;
+    a.click();
+}
+
+async function exportPDF(){
+    const cvs=renderToCanvas();if(!cvs)return;
+    const btn=event.target;
+    btn.disabled=true;btn.textContent='导出中...';
+    try{
+        const{minX,minY,maxX,maxY}=getBounds();
+        const pad=80,w=maxX-minX+pad*2,h=maxY-minY+pad*2;
+        const{jsPDF}=window.jspdf;
+        const pdf=new jsPDF({orientation:w>h?'landscape':'portrait',unit:'px',format:[w,h]});
+        pdf.addImage(cvs.toDataURL('image/png'),'PNG',0,0,w,h);
+        const root=nodes.find(n=>n.isRoot);
+        pdf.save(`${root?root.text:'未命名'}_${formatTime(new Date())}.pdf`);
+    }catch(err){console.error('导出PDF失败:',err);alert('导出PDF失败，请重试');}
+    btn.disabled=false;btn.textContent='导出PDF';
+}
+
+init();
+</script>
+</body>
+</html>
